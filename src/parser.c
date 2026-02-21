@@ -238,6 +238,10 @@ static AstNode *parse_fn_decl(Parser *p, int is_pub) {
                 parse_attrs(p, param);
             }
         }
+        /* optional default value: = expr */
+        if (match(p, TK_EQ)) {
+            param->init = parse_expr(p);
+        }
         ast_add_child(fn, param);
         if (!match(p, TK_COMMA)) break;
     }
@@ -260,10 +264,14 @@ static AstNode *parse_fn_decl(Parser *p, int is_pub) {
         } else if (!check(p, TK_LBRACE) && !check(p, TK_NEWLINE) && !check(p, TK_SEMI)) {
             fn->type_ann = parse_type_ann(p);
         }
-        /* optional function-level attributes after :: (e.g. ::constexpr) */
-        if (match(p, TK_DCOLON)) {
-            parse_attrs(p, fn);
-        }
+    }
+    /* optional function-level attributes after ::
+     * This may appear with OR without a preceding return-type annotation:
+     *   fn foo() : (r:i32) :: constexpr { … }   — after return type
+     *   fn foo() ::                      { … }   — no return type, bare ::
+     */
+    if (match(p, TK_DCOLON)) {
+        parse_attrs(p, fn);
     }
 
     /* body */

@@ -46,3 +46,8 @@ add_test(
     NAME test_patterns
     COMMAND interpreter ${CMAKE_SOURCE_DIR}/tests/test_patterns.txt
 )
+
+add_test(
+    NAME test_dcolon
+    COMMAND interpreter ${CMAKE_SOURCE_DIR}/tests/test_dcolon.txt
+)

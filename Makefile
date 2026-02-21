@@ -25,3 +25,5 @@ test: $(TARGET)
 	@$(TARGET) tests/test_functions.txt && echo "PASS" || echo "FAIL"
 	@echo "=== Running patterns test ==="
 	@$(TARGET) tests/test_patterns.txt && echo "PASS" || echo "FAIL"
+	@echo "=== Running dcolon test ==="
+	@$(TARGET) tests/test_dcolon.txt && echo "PASS" || echo "FAIL"

@@ -242,14 +242,38 @@ fn [<TemplateDecl>] name (params) [: (ret_name : RetType, …)] [:: fn_attrs] { 
 - The parameter list uses the same `:` / `::` annotation rules as variables (§3).
 - The return annotation is `:(name:Type, …)` — a parenthesised list of named,
   typed return variables.  It is omitted entirely when there are no return values.
-- Function-level attributes follow `::` after the return annotation.
+- Function-level attributes follow `::`.  The `::` may appear with or without a
+  preceding return-type annotation: `fn foo() :: {}` (no return, bare `::`) and
+  `fn foo() : (r:i32) :: constexpr {}` are both valid.  The `::` may be omitted
+  when there are no function-level attributes.
 
 ### Parameters
 
+Each parameter follows the same annotation rules as variables: `name`, `name:Type`,
+`name:Type::attrs`, or `name::attrs` (type omitted).
+
+Parameters may have a **default value** written as `= expr` after the type/attrs.
+When a caller omits trailing arguments, the interpreter evaluates each missing
+parameter's default expression in the call environment.
+
 ```
-fn add(a : i32, b : i32) { … }          // two typed params, no return
-fn show(msg : string :: const) { … }    // param with const attribute
-fn run(cb :: const) { … }              // param: type omitted, const attr
+fn add(a : i32, b : i32) { … }           // two typed params, no return
+fn show(msg : string :: const) { … }     // param with const attribute
+fn run(cb :: const) { … }               // param: type omitted, const attr
+fn greet(name : string = "world") {      // parameter with default value
+    print("Hello,", name)
+}
+fn power(base :: const = 2, exp : i32 = 10) : (result : i32) {
+    // base has no explicit type, inferred at call time; exp is i32
+    result = base
+}
+```
+
+Calling with and without defaults:
+
+```
+greet()           // Hello, world
+greet("Alice")    // Hello, Alice
 ```
 
 ### Named return variables

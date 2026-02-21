@@ -766,9 +766,29 @@ static EvalResult eval_fn_call(Value *fn, Value **args, int argc, int line, int 
         for (int i = 0; i < decl->child_count; i++) {
             AstNode *param = decl->children[i];
             if (!param || param->type != AST_PARAM) continue;
-            Value *arg = (param_idx < argc) ? args[param_idx] : value_new_null();
+            Value *arg;
+            if (param_idx < argc) {
+                arg = args[param_idx];
+            } else if (param->init) {
+                /* evaluate the default value expression in the call environment */
+                EvalResult def_r = eval(param->init, call_env);
+                if (def_r.sig != SIG_NONE) {
+                    env_decref(call_env);
+                    return def_r;
+                }
+                arg = def_r.val;
+                env_def(call_env, param->name ? param->name : "_", arg);
+                value_decref(arg);
+                param_idx++;
+                continue;
+            } else {
+                arg = value_new_null();
+                env_def(call_env, param->name ? param->name : "_", arg);
+                value_decref(arg);
+                param_idx++;
+                continue;
+            }
             env_def(call_env, param->name ? param->name : "_", arg);
-            if (param_idx >= argc) value_decref(arg); /* drop our ref; env holds its own */
             param_idx++;
         }
 
