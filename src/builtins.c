@@ -210,6 +210,13 @@ static Value *builtin_concat(Value **args, int argc) {
     return r;
 }
 
+/* ------------------------------------------------------------------ type reflection */
+
+static Value *builtin_type(Value **args, int argc) {
+    if (!check_argc(args, argc, 1, "type")) return value_new_null();
+    return value_type_of(args[0]);
+}
+
 /* ------------------------------------------------------------------ assert */
 
 static Value *builtin_assert(Value **args, int argc) {
@@ -241,6 +248,7 @@ void builtins_register(Env *env) {
     REG("is_float", builtin_is_float);
     REG("is_string",builtin_is_string);
     REG("type_of",  builtin_type_of);
+    REG("type",     builtin_type);
     REG("abs",      builtin_abs);
     REG("sqrt",     builtin_sqrt);
     REG("pow",      builtin_pow);

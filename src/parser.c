@@ -60,6 +60,16 @@ static void expect(Parser *p, TokenType t) {
     advance(p);
 }
 
+/* Consume any trailing attribute keywords (static, const, constexpr) and set
+   the corresponding flags on node.  Called after a '::' has already been consumed. */
+static void parse_attrs(Parser *p, AstNode *node) {
+    while (check(p, TK_STATIC) || check(p, TK_CONST) || check(p, TK_CONSTEXPR)) {
+        if (check(p, TK_STATIC))    { node->is_static    = 1; advance(p); }
+        else if (check(p, TK_CONST))     { node->is_const     = 1; advance(p); }
+        else if (check(p, TK_CONSTEXPR)) { node->is_constexpr = 1; advance(p); }
+    }
+}
+
 /* ------------------------------------------------------------------ init */
 
 void parser_init(Parser *p, Lexer *lex) {
@@ -132,7 +142,12 @@ AstNode *parse_declaration(Parser *p) { return parse_stmt(p); }
 /* ------------------------------------------------------------------ template decl */
 
 static AstNode *parse_template_decl(Parser *p) {
-    /* <T, U:type, N::num, ...> */
+    /* Syntax:  <Param[:<type>][:<num>][=default], …>
+     *  or      <Param::[<num>][=default], …>   (type omitted, variadic)
+     *
+     * TK_DCOLON (::) seen directly after the name means the type is omitted
+     * and the second ':' (variadic marker) follows immediately.
+     */
     if (!check(p, TK_LT)) return NULL;
     int line = p->cur.line, col = p->cur.col;
     advance(p); /* consume < */
@@ -142,11 +157,32 @@ static AstNode *parse_template_decl(Parser *p) {
             AstNode *param = ast_new(AST_PARAM, p->cur.line, p->cur.col);
             param->name = strdup(p->cur.value);
             advance(p);
-            if (match(p, TK_COLON)) {
-                /* type constraint or :: num */
-                if (check(p, TK_DCOLON)) { advance(p); /* num */ }
-                else if (check(p, TK_IDENT) || check(p, TK_VAR)) { advance(p); }
+
+            if (match(p, TK_DCOLON)) {
+                /* T:: or T::num — variadic, type omitted */
+                param->is_variadic = 1;
+                if (check(p, TK_IDENT) || check(p, TK_INT_LIT)) {
+                    /* optional variadic count */
+                    advance(p);
+                }
+            } else if (match(p, TK_COLON)) {
+                /* T:type or T:type:num */
+                if (check(p, TK_IDENT) || check(p, TK_VAR)) {
+                    /* type constraint — store in type_ann */
+                    AstNode *ta = ast_new(AST_TYPE_ANN, p->cur.line, p->cur.col);
+                    ta->data.str_val = strdup(p->cur.value);
+                    param->type_ann = ta;
+                    advance(p);
+                }
+                /* optional second ':' for variadic count */
+                if (match(p, TK_COLON)) {
+                    param->is_variadic = 1;
+                    if (check(p, TK_IDENT) || check(p, TK_INT_LIT)) {
+                        advance(p); /* optional count */
+                    }
+                }
             }
+
             if (match(p, TK_EQ)) {
                 param->init = parse_expr(p);
             }
@@ -192,8 +228,15 @@ static AstNode *parse_fn_decl(Parser *p, int is_pub) {
             param->name = strdup(p->cur.value);
             advance(p);
         }
-        if (match(p, TK_COLON)) {
+        /* param::attrs — type omitted, attributes present */
+        if (match(p, TK_DCOLON)) {
+            parse_attrs(p, param);
+        } else if (match(p, TK_COLON)) {
+            /* param:type or param:type::attrs */
             param->type_ann = parse_type_ann(p);
+            if (match(p, TK_DCOLON)) {
+                parse_attrs(p, param);
+            }
         }
         ast_add_child(fn, param);
         if (!match(p, TK_COMMA)) break;
@@ -217,9 +260,9 @@ static AstNode *parse_fn_decl(Parser *p, int is_pub) {
         } else if (!check(p, TK_LBRACE) && !check(p, TK_NEWLINE) && !check(p, TK_SEMI)) {
             fn->type_ann = parse_type_ann(p);
         }
-        /* optional attributes after another colon: ::constexpr etc */
-        if (match(p, TK_COLON)) {
-            while (check(p, TK_STATIC) || check(p, TK_CONST) || check(p, TK_CONSTEXPR)) advance(p);
+        /* optional function-level attributes after :: (e.g. ::constexpr) */
+        if (match(p, TK_DCOLON)) {
+            parse_attrs(p, fn);
         }
     }
 
@@ -246,14 +289,30 @@ static AstNode *parse_var_decl(Parser *p, int is_pub) {
     vd->name = strdup(p->cur.value);
     advance(p);
 
-    /* optional type annotation */
-    if (match(p, TK_COLON)) {
-        if (!check(p, TK_EQ) && !check(p, TK_NEWLINE) && !check(p, TK_SEMI) && !check(p, TK_EOF)) {
+    /* optional type annotation and/or attributes.
+     *
+     * Forms:
+     *   name:type          — type only
+     *   name:type::attrs   — type + attributes  (TK_COLON then type, then TK_DCOLON)
+     *   name::attrs        — no type, attributes (TK_DCOLON directly)
+     *
+     * When type is omitted (the '::' case), the initializer '=' must be present
+     * so the type can be inferred.
+     */
+    if (match(p, TK_DCOLON)) {
+        /* name::attrs — type completely omitted */
+        parse_attrs(p, vd);
+        if (!check(p, TK_EQ)) {
+            parser_error(p, "type omitted with '::' but no '=' initializer to infer type from");
+        }
+    } else if (match(p, TK_COLON)) {
+        /* name:type or name:type::attrs */
+        if (!check(p, TK_EQ) && !check(p, TK_NEWLINE) && !check(p, TK_SEMI)
+                && !check(p, TK_EOF) && !check(p, TK_DCOLON)) {
             vd->type_ann = parse_type_ann(p);
         }
-        /* attributes */
-        if (match(p, TK_COLON)) {
-            while (check(p, TK_STATIC) || check(p, TK_CONST) || check(p, TK_CONSTEXPR)) advance(p);
+        if (match(p, TK_DCOLON)) {
+            parse_attrs(p, vd);
         }
     }
 
@@ -279,17 +338,27 @@ static AstNode *parse_pat_decl(Parser *p, int is_pub) {
     pd->name = strdup(p->cur.value);
     advance(p);
 
-    /* optional base patterns */
-    if (match(p, TK_COLON)) {
+    /* optional base patterns and/or attributes.
+     *
+     * Forms:
+     *   pat Name:Base        — single base
+     *   pat Name:Base|Base2  — composed bases
+     *   pat Name:Base::attrs — base + attributes
+     *   pat Name::attrs      — no base, attributes only (TK_DCOLON directly)
+     */
+    if (match(p, TK_DCOLON)) {
+        /* no base, attributes only */
+        parse_attrs(p, pd);
+    } else if (match(p, TK_COLON)) {
         /* consume base pat names separated by | */
         do {
             AstNode *base = ast_new(AST_IDENT, p->cur.line, p->cur.col);
             if (check(p, TK_IDENT)) { base->name = strdup(p->cur.value); advance(p); }
             ast_add_child(pd, base);
         } while (match(p, TK_PIPE));
-        /* attributes */
-        if (match(p, TK_COLON)) {
-            while (check(p, TK_STATIC) || check(p, TK_CONST) || check(p, TK_CONSTEXPR)) advance(p);
+        /* optional attributes after :: */
+        if (match(p, TK_DCOLON)) {
+            parse_attrs(p, pd);
         }
     }
 

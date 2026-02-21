@@ -71,6 +71,7 @@ struct AstNode {
     int is_static;
     int is_const;
     int is_constexpr;
+    int is_variadic;   /* for template parameters: Param:: or Param:type: */
     char *name;        /* declaration name */
     char *op;          /* operator string for BINOP/UNOP */
     AstNode *type_ann; /* type annotation */

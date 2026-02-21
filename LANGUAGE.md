@@ -164,16 +164,29 @@ var z = 3.14        // type inferred from initialiser (f64)
 
 When a variable is declared without an initialiser it **must** have a type annotation. The first assignment to it acts as initialisation: the interpreter tries a constructor first, then a conversion function.
 
-### Attributes
+### Attributes and `::` (double colon)
 
-Attributes follow a second `:` in the type annotation position:
+Variable and parameter declarations have the form `name:Type:attrs`. Attributes are optional; when they are omitted there is only a single `:`. When the **type** is also omitted but attributes are still required, the two adjacent `:` merge into `::`:
 
 ```
-var PI:f64::const = 3.14159
-var counter:i32::static = 0
+var x:i32           // type only (single colon)
+var x:i32::const    // type + attributes
+var x::const = 42   // type omitted, attributes (::); type inferred from initialiser
 ```
+
+When `::` is used without a type annotation the initialiser (`= …`) **must** be present, because the type cannot be inferred otherwise — the parser reports an error if it is missing.
 
 Supported attributes: `static`, `const`, `constexpr`.
+
+The same rule applies to function parameters and function-level attributes:
+
+```
+fn show(msg:string::const) { … }          // param: type + const attribute
+fn compute(x::const):(result:i32) { … }   // param: type omitted, const attribute
+fn pure(x:i32):(result:i32)::constexpr {  // function-level constexpr attribute
+    result = x * x
+}
+```
 
 ### Multiple declaration
 
@@ -205,15 +218,15 @@ var { x = x_field, y = y_field }  = point_val // named fields
 Templates add compile-time parameters to `fn`, `var`, and `pat` declarations.
 
 ```
-<Param[:<type|constrain|var>[:[num]]][=default], …>
+<Param[:<type|constrain|var>[:<num>]][=default], …>
 ```
 
-- `Param` — a simple type template parameter.
-- `Param:type` — constrained to a type or constraint.
-- `Param:var` — a value template parameter.
-- `Param::` — variadic (no fixed count); the preceding `::` is required.
-- `Param::num` — variadic with a fixed count `num`.
-- `=default` — default value; can be a tuple `(val0, type1)` to fix count and types.
+- `Param` — a plain type template parameter (e.g. `T`).
+- `Param:Kind` — a **value** template parameter of the specified kind (e.g. `N:i32` means N must be a compile-time constant of type `i32`, `T:var` means T is any variable). The entire `:Kind` annotation can be omitted; without it `Param` is a plain type parameter.
+- `Param:type:num` — value parameter with variadic count `num`.
+- `Param::` — type omitted, variadic (the `::` is the two colons with type absent).
+- `Param::num` — type omitted, variadic with fixed count `num`.
+- `=default` — default value.
 
 ```
 fn<T> identity(x:T):(result:T) {
@@ -646,6 +659,48 @@ null = side_effect_fn()
 var x:null              // a variable that is always null
 ```
 
+### `type`
+
+`type` is the built-in reflection type. Declaring a variable with `:type` captures the **type** of the initialiser expression rather than its value. The resulting `type` value carries meta-information about the captured type.
+
+```
+var t:type = 42         // t holds the type of 42
+print(t.name)           // i64
+
+var t2:type = "hello"
+print(t2.name)          // string
+```
+
+`type` values expose the following members:
+
+| Member | Description |
+|--------|-------------|
+| `.name` | The type name as a `string` |
+| `.is_pat` | `true` when the type is a pattern (struct-like) type |
+| `.fields` | Named tuple of field names (non-empty for pattern types) |
+
+```
+pat Vec2 {
+    pub var x:f64
+    pub var y:f64
+}
+
+var v = Vec2(1.0, 2.0)
+var tv:type = v
+print(tv.name)      // Vec2
+print(tv.is_pat)    // true
+var f = tv.fields
+print(f.x)          // x
+print(f.y)          // y
+```
+
+`type` is also available as a regular function for use in expressions:
+
+```
+var t = type(some_value)
+print(t.name)
+```
+
 ### Scalar types
 
 | Alias | Description |
@@ -732,6 +787,7 @@ These functions are available in the global scope without any import.
 | `is_float` | `(val):(bool)` | Test for float type |
 | `is_string` | `(val):(bool)` | Test for string type |
 | `type_of` | `(val):(string)` | Return the type name as a string |
+| `type` | `(val):(type)` | Return a `type` reflection value for `val` (same as `var t:type = val`) |
 | `abs` | `(val):(typeof val)` | Absolute value |
 | `sqrt` | `(val):(f64)` | Square root |
 | `pow` | `(base, exp):(f64)` | Power |

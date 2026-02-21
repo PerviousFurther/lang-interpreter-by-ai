@@ -99,7 +99,48 @@ Value *value_new_module(const char *name, Env *env) {
 Value *value_new_type(const char *type_name) {
     Value *v = value_alloc(VAL_TYPE);
     v->type_val.type_name = strdup(type_name);
+    v->type_val.patdef    = NULL;
     return v;
+}
+
+Value *value_new_pat_type(const char *type_name, PatDef *def) {
+    Value *v = value_alloc(VAL_TYPE);
+    v->type_val.type_name = strdup(type_name);
+    v->type_val.patdef    = def;
+    if (def) patdef_incref(def);
+    return v;
+}
+
+/* Return a VAL_TYPE that reflects the runtime type of v. */
+Value *value_type_of(Value *v) {
+    if (!v) return value_new_type("null");
+    switch (v->type) {
+        case VAL_NULL:       return value_new_type("null");
+        case VAL_INT:        return value_new_type("i64");
+        case VAL_FLOAT:      return value_new_type("f64");
+        case VAL_STRING:     return value_new_type("string");
+        case VAL_BOOL:       return value_new_type("bool");
+        case VAL_TUPLE:      return value_new_type("tuple");
+        case VAL_VARIANT:    return value_new_type("variant");
+        case VAL_SCOPE:      return value_new_type("scope");
+        case VAL_OPTIONAL:   return value_new_type("optional");
+        case VAL_TYPE:       return value_new_type("type");
+        case VAL_BUILTIN_FN: return value_new_type("function");
+        case VAL_FUNCTION: {
+            const char *n = v->fn.name ? v->fn.name : "function";
+            return value_new_type(n);
+        }
+        case VAL_PAT_INST: {
+            const char *n = (v->pat_inst.def && v->pat_inst.def->name)
+                            ? v->pat_inst.def->name : "pat";
+            return value_new_pat_type(n, v->pat_inst.def);
+        }
+        case VAL_MODULE: {
+            const char *n = v->module.name ? v->module.name : "module";
+            return value_new_type(n);
+        }
+        default: return value_new_type("unknown");
+    }
 }
 
 Value *value_new_optional(Value *val, int present) {
@@ -151,6 +192,7 @@ void value_decref(Value *v) {
             break;
         case VAL_TYPE:
             free(v->type_val.type_name);
+            patdef_decref(v->type_val.patdef); /* patdef_decref handles NULL safely */
             break;
         case VAL_MODULE:
             free(v->module.name);

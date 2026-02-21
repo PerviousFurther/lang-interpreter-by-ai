@@ -320,6 +320,34 @@ EvalResult eval(AstNode *node, Env *env) {
                     return ok(fv);
                 }
             }
+        } else if (obj->type == VAL_TYPE) {
+            /* Reflection: access meta-information of a type value */
+            if (strcmp(field, "name") == 0) {
+                Value *r = value_new_string(
+                    obj->type_val.type_name ? obj->type_val.type_name : "");
+                value_decref(obj);
+                return ok(r);
+            }
+            if (strcmp(field, "fields") == 0) {
+                PatDef *def = obj->type_val.patdef;
+                int n = def ? def->field_count : 0;
+                Value *fields = value_new_tuple(n);
+                if (n > 0) {
+                    fields->tuple.names = calloc((size_t)n, sizeof(char *));
+                    for (int i = 0; i < n; i++) {
+                        const char *fn = def->field_names[i] ? def->field_names[i] : "";
+                        fields->tuple.elems[i] = value_new_string(fn);
+                        fields->tuple.names[i] = strdup(fn);
+                    }
+                }
+                value_decref(obj);
+                return ok(fields);
+            }
+            if (strcmp(field, "is_pat") == 0) {
+                Value *r = value_new_bool(obj->type_val.patdef != NULL);
+                value_decref(obj);
+                return ok(r);
+            }
         } else if (obj->type == VAL_SCOPE && obj->scope.env) {
             Value *v = env_get(obj->scope.env, field);
             if (v) { value_incref(v); value_decref(obj); return ok(v); }
@@ -457,7 +485,16 @@ EvalResult eval(AstNode *node, Env *env) {
             EvalResult r = eval(node->init, env);
             if (r.sig != SIG_NONE) return r;
             value_decref(v);
-            v = r.val;
+            /* Special case: var name:type = expr  →  capture the TYPE of expr */
+            if (node->type_ann
+                    && node->type_ann->type == AST_TYPE_ANN
+                    && node->type_ann->data.str_val
+                    && strcmp(node->type_ann->data.str_val, "type") == 0) {
+                v = value_type_of(r.val);
+                value_decref(r.val);
+            } else {
+                v = r.val;
+            }
         }
         env_def(env, node->name, v);
         value_decref(v);

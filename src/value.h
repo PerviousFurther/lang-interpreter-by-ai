@@ -76,7 +76,8 @@ struct Value {
             int    present;
         } optional;
         struct {
-            char *type_name;
+            char   *type_name;
+            PatDef *patdef;  /* non-null when this is a pattern type; holds a ref */
         } type_val;
         struct {
             Env  *env;
@@ -99,6 +100,8 @@ Value *value_new_pat_inst(PatDef *def, int field_count);
 Value *value_new_scope(Env *env);
 Value *value_new_module(const char *name, Env *env);
 Value *value_new_type(const char *type_name);
+Value *value_new_pat_type(const char *type_name, PatDef *def);
+Value *value_type_of(Value *v);   /* reflect: returns a VAL_TYPE describing v's type */
 Value *value_new_optional(Value *val, int present);
 
 void   value_incref(Value *v);
