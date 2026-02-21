@@ -263,6 +263,8 @@ fn run(cb :: const) { … }               // param: type omitted, const attr
 fn greet(name : string = "world") {      // parameter with default value
     print("Hello,", name)
 }
+fn nl_sig
+(a : i32, b : i32) : (result : i32) { … } // newline between name and '(' is allowed
 fn power(base :: const = 2, exp : i32 = 10) : (result : i32) {
     // base has no explicit type, inferred at call time; exp is i32
     result = base

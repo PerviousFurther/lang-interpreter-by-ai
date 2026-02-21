@@ -217,6 +217,9 @@ static AstNode *parse_fn_decl(Parser *p, int is_pub) {
         return fn;
     }
 
+    /* allow line break between function name and parameter list */
+    skip_terminators(p);
+
     /* parameter list */
     expect(p, TK_LPAREN);
     while (!check(p, TK_RPAREN) && !check(p, TK_EOF)) {
