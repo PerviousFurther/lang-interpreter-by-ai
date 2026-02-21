@@ -25,7 +25,7 @@ void patdef_decref(PatDef *p) {
         free(p->name);
         for (int i = 0; i < p->field_count; i++) free(p->field_names[i]);
         free(p->field_names);
-        /* env_free(p->methods); -- TODO */
+        if (p->methods) env_decref(p->methods);
         free(p);
     }
 }

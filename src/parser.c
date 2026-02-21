@@ -791,6 +791,10 @@ static AstNode *parse_postfix(Parser *p, AstNode *base) {
                 p->lex->bracket_depth = saved_bd;
                 p->lex->brace_depth = saved_brd;
                 p->lex->last_real = saved_lr;
+                /* Free current peek buffer before restoring saved state */
+                if (p->lex->has_peek) {
+                    token_free(&p->lex->peek_buf);
+                }
                 p->lex->has_peek = saved_hp;
                 if (saved_hp) {
                     p->lex->peek_buf = saved_peek;

@@ -110,16 +110,15 @@ Value *load_module(ModuleSystem *ms, const char *path, Interpreter *interp) {
 void resolve_import(AstNode *import_node, Env *env, ModuleSystem *ms, Interpreter *interp) {
     if (!import_node || import_node->type != AST_IMPORT_DECL) return;
 
-    /* Build file path from module name (dots → slashes) */
+    /* Build file path from module name (dots → slashes), preserving .lang extension */
     const char *mod_name = import_node->name;
     char path_buf[512];
-    snprintf(path_buf, sizeof(path_buf), "%s.lang", mod_name);
-    /* replace dots with slashes */
-    for (char *p = path_buf; *p; p++) {
-        if (*p == '.') *p = '/';
+    /* Replace dots in module name with slashes, then append .lang */
+    size_t i = 0;
+    for (; mod_name[i] && i < sizeof(path_buf) - 6; i++) {
+        path_buf[i] = (mod_name[i] == '.') ? '/' : mod_name[i];
     }
-    /* re-add extension */
-    /* already have it from snprintf — the dots before .lang might conflict, just keep it */
+    snprintf(path_buf + i, sizeof(path_buf) - i, ".lang");
 
     Value *mod = load_module(ms, path_buf, interp);
     const char *alias = import_node->op ? import_node->op : mod_name;

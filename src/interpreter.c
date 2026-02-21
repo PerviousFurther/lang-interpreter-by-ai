@@ -722,6 +722,7 @@ static EvalResult eval_fn_call(Value *fn, Value **args, int argc, int line, int 
             if (!param || param->type != AST_PARAM) continue;
             Value *arg = (param_idx < argc) ? args[param_idx] : value_new_null();
             env_def(call_env, param->name ? param->name : "_", arg);
+            if (param_idx >= argc) value_decref(arg); /* drop our ref; env holds its own */
             param_idx++;
         }
 
