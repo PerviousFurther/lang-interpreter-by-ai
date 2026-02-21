@@ -447,6 +447,11 @@ Param [: Kind [: num]] [= default]
 
 When a variadic template parameter is the **last** template parameter, calls can
 pass the expanded trailing arguments directly (no extra wrapping `()` required).
+This rule refers to the **call site**:
+
+```
+some_fn<Head, Tail1, Tail2>(arg)   // direct expansion at call site
+```
 
 ```
 fn <T> identity(x : T) : (result : T) {
