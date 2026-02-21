@@ -18,6 +18,6 @@ fn nl_sig
 }
 print(nl_sig(4, 5).result)
 
-fn parse_only_template_call() {
+fn test_template_call_syntax() {
     target<T, U, V>(0)
 }
