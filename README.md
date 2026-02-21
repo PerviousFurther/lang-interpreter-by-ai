@@ -445,6 +445,9 @@ Param [: Kind [: num]] [= default]
 | `T :: num` | Variadic with fixed count `num` |
 | `= default` | Default value |
 
+When a variadic template parameter is the **last** template parameter, calls can
+pass the expanded trailing arguments directly (no extra wrapping `()` required).
+
 ```
 fn <T> identity(x : T) : (result : T) {
     result = x

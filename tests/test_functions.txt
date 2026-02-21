@@ -17,3 +17,7 @@ fn nl_sig
     result = a + b
 }
 print(nl_sig(4, 5).result)
+
+fn parse_only_template_call() {
+    target<T, U, V>(0)
+}
