@@ -1,5 +1,5 @@
-fn add(a:i32, b:i32):[result:i32] {
-    return (a + b)
+fn add(a:i32, b:i32):[(result:i32)] {
+    return (result: a + b)
 }
 var r = add(1, 2)
-print(r)
+print(r.result)

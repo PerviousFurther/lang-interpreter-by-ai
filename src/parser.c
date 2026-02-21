@@ -200,17 +200,22 @@ static AstNode *parse_fn_decl(Parser *p, int is_pub) {
     }
     expect(p, TK_RPAREN);
 
-    /* optional return type annotation: :[(...)] */
+    /* optional return type annotation: :[(name:type, ...)] or :[name:type] */
     if (match(p, TK_COLON)) {
         /* return type is optional, enclosed in [...] or bare type */
         if (check(p, TK_LBRACKET)) {
             advance(p);
-            fn->type_ann = parse_type_ann(p);
+            /* accept optional inner (...) wrapping the tuple type list */
+            int has_paren = match(p, TK_LPAREN);
+            if (!check(p, TK_RPAREN) && !check(p, TK_RBRACKET))
+                fn->type_ann = parse_type_ann(p);
             /* may be result:type pairs */
             while (match(p, TK_COMMA)) {
                 /* just skip extra return names for now */
-                parse_type_ann(p);
+                if (!check(p, TK_RPAREN) && !check(p, TK_RBRACKET))
+                    parse_type_ann(p);
             }
+            if (has_paren) expect(p, TK_RPAREN);
             expect(p, TK_RBRACKET);
         } else if (!check(p, TK_LBRACE) && !check(p, TK_NEWLINE) && !check(p, TK_SEMI)) {
             fn->type_ann = parse_type_ann(p);
@@ -662,13 +667,42 @@ static AstNode *parse_primary(Parser *p) {
     }
     if (check(p, TK_LPAREN)) {
         advance(p);
-        /* could be a tuple literal: (name: expr, ...) */
+        /* could be a tuple literal: (name: expr, ...) or (expr, ...) */
         AstNode *expr = parse_expr(p);
+        /* named element: (name: value, ...) — ident followed by ':' */
+        if (check(p, TK_COLON) && expr && expr->type == AST_IDENT) {
+            AstNode *tuple = ast_new(AST_TUPLE, line, col);
+            for (;;) {
+                /* consume ':' and parse value */
+                advance(p); /* consume ':' */
+                AstNode *elem = ast_new(AST_PARAM, expr->line, expr->col);
+                elem->name = expr->name; /* transfer name ownership */
+                expr->name = NULL;       /* prevent double-free in ast_free */
+                ast_free(expr);
+                elem->init = parse_expr(p);
+                ast_add_child(tuple, elem);
+                if (!match(p, TK_COMMA)) break;
+                if (check(p, TK_RPAREN)) break; /* trailing comma */
+                expr = parse_expr(p);
+                /* subsequent element may or may not be named */
+                if (!check(p, TK_COLON) || !expr || expr->type != AST_IDENT) {
+                    ast_add_child(tuple, expr);
+                    while (match(p, TK_COMMA)) {
+                        if (check(p, TK_RPAREN)) break;
+                        ast_add_child(tuple, parse_expr(p));
+                    }
+                    break;
+                }
+            }
+            expect(p, TK_RPAREN);
+            return tuple;
+        }
         if (check(p, TK_COMMA) || (expr && expr->type == AST_ASSIGN)) {
-            /* Tuple */
+            /* Unnamed tuple: (a, b, ...) */
             AstNode *tuple = ast_new(AST_TUPLE, line, col);
             ast_add_child(tuple, expr);
             while (match(p, TK_COMMA)) {
+                if (check(p, TK_RPAREN)) break; /* trailing comma */
                 ast_add_child(tuple, parse_expr(p));
             }
             expect(p, TK_RPAREN);

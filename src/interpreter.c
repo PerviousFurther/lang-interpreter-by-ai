@@ -387,6 +387,15 @@ EvalResult eval(AstNode *node, Env *env) {
                 EvalResult r = eval(child->body, env);
                 if (r.sig != SIG_NONE) { value_decref(t); return r; }
                 t->tuple.elems[i] = r.val;
+            } else if (child && child->type == AST_PARAM && child->name && child->init) {
+                /* named: (name: expr) — from named tuple literal syntax */
+                if (!t->tuple.names) {
+                    t->tuple.names = calloc((size_t)node->child_count, sizeof(char *));
+                }
+                t->tuple.names[i] = strdup(child->name);
+                EvalResult r = eval(child->init, env);
+                if (r.sig != SIG_NONE) { value_decref(t); return r; }
+                t->tuple.elems[i] = r.val;
             } else if (child && child->type == AST_TYPE_ANN && child->name) {
                 /* named: name:type = expr — for return tuples */
                 if (!t->tuple.names) {
