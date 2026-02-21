@@ -1,5 +1,13 @@
-fn add(a:i32, b:i32):[(result:i32)] {
-    return (result: a + b)
+fn add(a:i32, b:i32):(result:i32) {
+    result = a + b
 }
 var r = add(1, 2)
 print(r.result)
+
+fn divmod(a:i32, b:i32):(quotient:i32, remainder:i32) {
+    quotient = a / b
+    remainder = a - (a / b) * b
+}
+var d = divmod(17, 5)
+print(d.quotient)
+print(d.remainder)

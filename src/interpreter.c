@@ -735,12 +735,54 @@ static EvalResult eval_fn_call(Value *fn, Value **args, int argc, int line, int 
             param_idx++;
         }
 
+        /* define named return variables in function scope (initialised to null) */
+        AstNode *ret_type = decl->type_ann;
+        int named_ret_count = 0;
+        if (ret_type && ret_type->type == AST_TUPLE) {
+            for (int i = 0; i < ret_type->child_count; i++) {
+                AstNode *rta = ret_type->children[i];
+                if (rta && rta->name) {
+                    Value *init = value_new_null();
+                    env_def(call_env, rta->name, init);
+                    value_decref(init);
+                    named_ret_count++;
+                }
+            }
+        }
+
         /* execute body */
         EvalResult r;
         if (decl->body) {
             r = eval_block(decl->body, call_env);
         } else {
             r = ok(value_new_null());
+        }
+
+        /* on implicit fall-through or bare `return`, collect named return vars */
+        if (named_ret_count > 0 &&
+            (r.sig == SIG_NONE ||
+             (r.sig == SIG_RETURN && r.val && r.val->type == VAL_NULL))) {
+            Value *ret_tuple = value_new_tuple(named_ret_count);
+            ret_tuple->tuple.names = calloc((size_t)named_ret_count, sizeof(char *));
+            if (!ret_tuple->tuple.names) {
+                value_decref(ret_tuple);
+                if (r.val) value_decref(r.val);
+                env_decref(call_env);
+                return err("out of memory collecting return values", line, col);
+            }
+            int ti = 0;
+            for (int i = 0; i < ret_type->child_count; i++) {
+                AstNode *rta = ret_type->children[i];
+                if (!rta || !rta->name) continue;
+                ret_tuple->tuple.names[ti] = strdup(rta->name);
+                Value *v = env_get(call_env, rta->name);
+                if (v) { value_incref(v); ret_tuple->tuple.elems[ti] = v; }
+                else   { ret_tuple->tuple.elems[ti] = value_new_null(); }
+                ti++;
+            }
+            if (r.val) value_decref(r.val);
+            env_decref(call_env);
+            return ok(ret_tuple);
         }
 
         env_decref(call_env);

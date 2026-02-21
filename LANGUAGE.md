@@ -216,12 +216,13 @@ Templates add compile-time parameters to `fn`, `var`, and `pat` declarations.
 - `=default` — default value; can be a tuple `(val0, type1)` to fix count and types.
 
 ```
-fn<T> identity(x:T):[(T)] {
-    return (x)
+fn<T> identity(x:T):(result:T) {
+    result = x
 }
 
-fn<T, U> pair(a:T, b:U):[(T, U)] {
-    return (a, b)
+fn<T, U> pair(a:T, b:U):(first:T, second:U) {
+    first = a
+    second = b
 }
 
 pat<T> Box {
@@ -236,7 +237,7 @@ var<T:i32> zero:T = T(0)
 ## Functions
 
 ```
-fn[<TemplateDecl>] name(param:Type[:attrs…] …) [:[(ret_name:RetType, …)][:[attrs…]]] {…}
+fn[<TemplateDecl>] name(param:Type[:attrs…] …) [:(ret_name:RetType, …)[: attrs…]] {…}
 ```
 
 ### Parameters
@@ -250,7 +251,9 @@ fn show(msg:string::const) { … }
 
 ### Return values
 
-Return values are **tuples**. The return type annotation is written as `:[(name:Type, …)]` — a colon, then square brackets containing a parenthesised tuple-type list. Each element is written as `name:Type`. When there are no return values, the annotation may be omitted entirely.
+Return values are **tuples**. The return type annotation is written as `:(name:Type, …)` — a colon followed directly by a parenthesised list of `name:Type` pairs. When there are no return values the annotation is omitted.
+
+The named return variables are **automatically defined as local variables** inside the function body, initialised to `null`. Assigning to them inside the body sets the return value. When the function reaches the end of its body (or a bare `return`), those variables are automatically gathered into a named tuple and returned — **no explicit `return` statement is needed**.
 
 ```
 // No return value
@@ -258,31 +261,46 @@ fn greet(name:string) {
     print("Hello, ", name)
 }
 
-// Single return value — still a 1-tuple
-fn square(x:i32):[(result:i32)] {
-    return (result: x * x)
+// Single return value — assign to the named variable
+fn square(x:i32):(result:i32) {
+    result = x * x
 }
 
 // Multiple return values
-fn divmod(a:i32, b:i32):[(quotient:i32, remainder:i32)] {
-    return (quotient: a / b, remainder: a % b)
+fn divmod(a:i32, b:i32):(quotient:i32, remainder:i32) {
+    quotient = a / b
+    remainder = a - (a / b) * b
 }
 ```
 
-The `return` keyword is followed by a tuple literal `(…)`. Accessing individual return values:
+Accessing return values by name:
 
 ```
-var q:i32, r:i32 = divmod(17, 5)
-// or with named unpacking:
-var { quotient = q, remainder = r } = divmod(17, 5)
+var s = square(7)
+print(s.result)    // 49
+
+var d = divmod(17, 5)
+print(d.quotient)   // 3
+print(d.remainder)  // 2
 ```
 
-Omitting the return type annotation when there are no named returns:
+A bare `return` exits the function early and returns the current values of the named variables:
 
 ```
-fn log(msg:string) {
-    print(msg)
-    // implicit return ()
+fn first_positive(a:i32, b:i32):(result:i32) {
+    result = 0
+    a > 0 ? result = a : null
+    a > 0 ? return : null   // early exit with current result
+    result = b
+}
+```
+
+An explicit `return (name: val)` tuple literal may also be used for early exit with a specific value:
+
+```
+fn abs_val(x:i32):(result:i32) {
+    x < 0 ? return (result: -x) : null
+    result = x
 }
 ```
 
@@ -291,8 +309,8 @@ fn log(msg:string) {
 Function-level attributes follow a second `:` after the return annotation:
 
 ```
-fn<T> max_val(a:T, b:T):[(T)]::constexpr {
-    return (a > b ? a : b)
+fn<T> max_val(a:T, b:T):(result:T)::constexpr {
+    result = a > b ? a : b
 }
 ```
 
@@ -314,13 +332,13 @@ Inside a `pat` scope, functions may use reserved names:
 Operator names are quoted strings. The interpreter determines prefix, postfix, or binary placement from attributes (defaults follow C++ conventions for standard operators):
 
 ```
-fn "+"(a:Vec2, b:Vec2):[(Vec2)] {
-    return (Vec2(a.x + b.x, a.y + b.y))
+fn "+"(a:Vec2, b:Vec2):(result:Vec2) {
+    result = Vec2(a.x + b.x, a.y + b.y)
 }
 
 // User-defined operator
-fn "+>"(a:i32, b:i32):[(i32)] {
-    return (a + b + 1)
+fn "+>"(a:i32, b:i32):(result:i32) {
+    result = a + b + 1
 }
 
 var r = 3 +> 4   // calls fn "+>"
@@ -331,11 +349,12 @@ var r = 3 +> 4   // calls fn "+>"
 Function bodies may contain `var`, `fn`, and `pat` declarations. Marking them `pub` makes them accessible as `function_name.member`:
 
 ```
-fn make_counter():[(get:function, inc:function)] {
+fn make_counter():(get:function, inc:function) {
     var count:i32 = 0
-    pub fn get():[(i32)] { return (count) }
+    pub fn get():(result:i32) { result = count }
     pub fn inc() { count = count + 1 }
-    return (get: get, inc: inc)
+    get = get
+    inc = inc
 }
 ```
 
@@ -505,13 +524,11 @@ switch (status) {
 
 ### Return
 
-`return (…)` exits the current function and returns the tuple `(…)` as its value. Parentheses are required because the return value is always a tuple.
+`return` with no arguments exits a function early, returning the current values of the named return variables as a tuple. An explicit `return (name: val, …)` tuple can also be given for an early exit with specific values. Named return variables are collected automatically when the function body finishes — in most cases no `return` is needed at all.
 
 ```
-fn clamp(x:i32, lo:i32, hi:i32):[(i32)] {
-    x < lo ? return (lo) : null
-    x > hi ? return (hi) : null
-    return (x)
+fn clamp(x:i32, lo:i32, hi:i32):(result:i32) {
+    result = x < lo ? lo : (x > hi ? hi : x)
 }
 ```
 
@@ -705,26 +722,26 @@ These functions are available in the global scope without any import.
 |------|-----------|-------------|
 | `print` | `(vals…)` | Print values separated by spaces, followed by a newline |
 | `println` | `(vals…)` | Alias for `print` |
-| `input` | `([prompt:string]):[(string)]` | Read a line from stdin |
-| `int` | `(val):[(i64)]` | Convert to integer |
-| `float` | `(val):[(f64)]` | Convert to float |
-| `string` | `(val):[(string)]` | Convert to string |
-| `bool` | `(val):[(bool)]` | Convert to boolean |
-| `is_null` | `(val):[(bool)]` | Test for null |
-| `is_int` | `(val):[(bool)]` | Test for integer type |
-| `is_float` | `(val):[(bool)]` | Test for float type |
-| `is_string` | `(val):[(bool)]` | Test for string type |
-| `type_of` | `(val):[(string)]` | Return the type name as a string |
-| `abs` | `(val):[(typeof val)]` | Absolute value |
-| `sqrt` | `(val):[(f64)]` | Square root |
-| `pow` | `(base, exp):[(f64)]` | Power |
-| `floor` | `(val):[(i64)]` | Floor toward −∞ |
-| `ceil` | `(val):[(i64)]` | Ceiling toward +∞ |
+| `input` | `([prompt:string]):(string)` | Read a line from stdin |
+| `int` | `(val):(i64)` | Convert to integer |
+| `float` | `(val):(f64)` | Convert to float |
+| `string` | `(val):(string)` | Convert to string |
+| `bool` | `(val):(bool)` | Convert to boolean |
+| `is_null` | `(val):(bool)` | Test for null |
+| `is_int` | `(val):(bool)` | Test for integer type |
+| `is_float` | `(val):(bool)` | Test for float type |
+| `is_string` | `(val):(bool)` | Test for string type |
+| `type_of` | `(val):(string)` | Return the type name as a string |
+| `abs` | `(val):(typeof val)` | Absolute value |
+| `sqrt` | `(val):(f64)` | Square root |
+| `pow` | `(base, exp):(f64)` | Power |
+| `floor` | `(val):(i64)` | Floor toward −∞ |
+| `ceil` | `(val):(i64)` | Ceiling toward +∞ |
 | `min` | `(a, b)` | Minimum of two values |
 | `max` | `(a, b)` | Maximum of two values |
-| `len` | `(val):[(i64)]` | Length of string or tuple |
-| `substr` | `(s:string, start:i64, len:i64):[(string)]` | Substring |
-| `concat` | `(vals…):[(string)]` | Concatenate strings |
+| `len` | `(val):(i64)` | Length of string or tuple |
+| `substr` | `(s:string, start:i64, len:i64):(string)` | Substring |
+| `concat` | `(vals…):(string)` | Concatenate strings |
 | `assert` | `(cond[, msg:string])` | Abort with message if condition is false |
 
 ---
@@ -734,14 +751,13 @@ These functions are available in the global scope without any import.
 ### Fibonacci
 
 ```
-fn fib(n:i32):[(result:i32)] {
-    n <= 1 ? return (result: n) : null
-    var a:i32, b:i32 = fib(n - 1).result, fib(n - 2).result
-    return (result: a + b)
+fn fib(n:i32):(result:i32) {
+    n <= 1 ? result = n : null
+    n > 1  ? result = fib(n - 1).result + fib(n - 2).result : null
 }
 
 for (i : 0..10) {
-    print(fib(i))
+    print(fib(i).result)
 }
 ```
 
@@ -753,19 +769,17 @@ pat Node {
     pub var next:Node
 }
 
-fn push(head:Node, val:i32):[(head:Node)] {
+fn push(head:Node, val:i32):(head:Node) {
     var n = Node(val, head)
-    return (head: n)
+    head = n
 }
 
-fn sum_list(head:Node):[(total:i32)] {
-    var total:i32 = 0
-    var cur = head
+fn sum_list(node:Node):(total:i32) {
+    var cur = node
     while (cur != null) {
         total = total + cur.value
         cur = cur.next
     }
-    return (total: total)
 }
 
 var list:Node = null
@@ -788,12 +802,12 @@ pat Vec2 {
     }
 }
 
-fn "+"(a:Vec2, b:Vec2):[(result:Vec2)] {
-    return (result: Vec2(a.x + b.x, a.y + b.y))
+fn "+"(a:Vec2, b:Vec2):(result:Vec2) {
+    result = Vec2(a.x + b.x, a.y + b.y)
 }
 
-fn dot(a:Vec2, b:Vec2):[(result:f64)] {
-    return (result: a.x * b.x + a.y * b.y)
+fn dot(a:Vec2, b:Vec2):(result:f64) {
+    result = a.x * b.x + a.y * b.y
 }
 
 var u = Vec2(1.0, 0.0)
@@ -805,33 +819,29 @@ print(dot(w, w).result)   // 2.0
 ### Switch and optional
 
 ```
-fn classify(n:i32):[(label:string)] {
-    return (
-        switch (n % 3) {
-            case 0: { yield "fizz" } break
-            case 1: { yield "one"  } break
-            default: { yield "other" } break
-        }
-    )
+fn classify(n:i32):(label:string) {
+    label = switch (n % 3) {
+        case 0: { yield "fizz" } break
+        case 1: { yield "one"  } break
+        default: { yield "other" } break
+    }
 }
 
-var label = classify(9).label
-print(label)   // fizz
+var c = classify(9)
+print(c.label)   // fizz
 ```
 
-### Multiple return values and tuple unpacking
+### Multiple return values
 
 ```
-fn minmax(a:i32, b:i32):[(lo:i32, hi:i32)] {
-    return (lo: a < b ? a : b, hi: a < b ? b : a)
+fn minmax(a:i32, b:i32):(lo:i32, hi:i32) {
+    lo = a < b ? a : b
+    hi = a < b ? b : a
 }
 
-var lo:i32, hi:i32 = minmax(7, 3)
-print(lo)   // 3
-print(hi)   // 7
-
-// Alternative: named unpacking
-var { lo = low, hi = high } = minmax(7, 3)
+var m = minmax(7, 3)
+print(m.lo)   // 3
+print(m.hi)   // 7
 ```
 
 ### Module example
@@ -844,8 +854,8 @@ pub pat Vec3 {
     pub var z:f64
 }
 
-pub fn "+"(a:Vec3, b:Vec3):[(result:Vec3)] {
-    return (result: Vec3(a.x + b.x, a.y + b.y, a.z + b.z))
+pub fn "+"(a:Vec3, b:Vec3):(result:Vec3) {
+    result = Vec3(a.x + b.x, a.y + b.y, a.z + b.z)
 }
 ```
 

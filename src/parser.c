@@ -200,27 +200,24 @@ static AstNode *parse_fn_decl(Parser *p, int is_pub) {
     }
     expect(p, TK_RPAREN);
 
-    /* optional return type annotation: :[(name:type, ...)] or :[name:type] */
+    /* optional return type annotation: :(name:type, ...) */
     if (match(p, TK_COLON)) {
-        /* return type is optional, enclosed in [...] or bare type */
-        if (check(p, TK_LBRACKET)) {
-            advance(p);
-            /* accept optional inner (...) wrapping the tuple type list */
-            int has_paren = match(p, TK_LPAREN);
-            if (!check(p, TK_RPAREN) && !check(p, TK_RBRACKET))
-                fn->type_ann = parse_type_ann(p);
-            /* may be result:type pairs */
-            while (match(p, TK_COMMA)) {
-                /* just skip extra return names for now */
-                if (!check(p, TK_RPAREN) && !check(p, TK_RBRACKET))
-                    parse_type_ann(p);
+        if (check(p, TK_LPAREN)) {
+            /* return type tuple: :(name:type, ...) */
+            int ret_line = p->cur.line, ret_col = p->cur.col;
+            advance(p); /* consume ( */
+            AstNode *ret_tuple = ast_new(AST_TUPLE, ret_line, ret_col);
+            while (!check(p, TK_RPAREN) && !check(p, TK_EOF)) {
+                AstNode *ta = parse_type_ann(p);
+                if (ta) ast_add_child(ret_tuple, ta);
+                if (!match(p, TK_COMMA)) break;
             }
-            if (has_paren) expect(p, TK_RPAREN);
-            expect(p, TK_RBRACKET);
+            expect(p, TK_RPAREN);
+            fn->type_ann = ret_tuple;
         } else if (!check(p, TK_LBRACE) && !check(p, TK_NEWLINE) && !check(p, TK_SEMI)) {
             fn->type_ann = parse_type_ann(p);
         }
-        /* optional attributes after another colon */
+        /* optional attributes after another colon: ::constexpr etc */
         if (match(p, TK_COLON)) {
             while (check(p, TK_STATIC) || check(p, TK_CONST) || check(p, TK_CONSTEXPR)) advance(p);
         }
@@ -563,7 +560,7 @@ static AstNode *parse_expr_prec(Parser *p, int min_prec) {
     AstNode *left = parse_unary(p);
     if (!left) return NULL;
 
-    /* assignment */
+    /* assignment (lowest precedence, right-associative) */
     if (min_prec == 0 && check(p, TK_EQ)) {
         int line = p->cur.line, col = p->cur.col;
         advance(p);
@@ -572,18 +569,6 @@ static AstNode *parse_expr_prec(Parser *p, int min_prec) {
         assign->init = left;
         assign->body = right;
         left = assign;
-        /* check for ternary after assign */
-    }
-
-    /* ternary ?: */
-    if (check(p, TK_QUESTION)) {
-        int line = p->cur.line, col = p->cur.col;
-        advance(p);
-        AstNode *opt = ast_new(AST_OPTIONAL, line, col);
-        opt->cond = left;
-        opt->init = parse_expr(p);
-        if (match(p, TK_COLON)) opt->alt = parse_expr(p);
-        return opt;
     }
 
     for (;;) {
@@ -598,6 +583,17 @@ static AstNode *parse_expr_prec(Parser *p, int min_prec) {
         ast_add_child(bin, left);
         ast_add_child(bin, right);
         left = bin;
+    }
+
+    /* ternary ?: — parsed after all binary ops so `a < b ? c : d` = `(a<b) ? c : d` */
+    if (min_prec == 0 && check(p, TK_QUESTION)) {
+        int line = p->cur.line, col = p->cur.col;
+        advance(p);
+        AstNode *opt = ast_new(AST_OPTIONAL, line, col);
+        opt->cond = left;
+        opt->init = parse_expr(p);
+        if (match(p, TK_COLON)) opt->alt = parse_expr(p);
+        return opt;
     }
 
     return left;
