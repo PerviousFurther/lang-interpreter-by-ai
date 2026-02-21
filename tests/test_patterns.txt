@@ -1,0 +1,7 @@
+pat Point {
+    pub var x:f64
+    pub var y:f64
+}
+var p = Point(1.0, 2.0)
+print(p.x)
+print(p.y)

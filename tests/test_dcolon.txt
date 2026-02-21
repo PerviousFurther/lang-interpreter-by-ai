@@ -1,0 +1,41 @@
+// Test :: annotation forms and parameter default values
+
+// var v:: = expr  — trailing :: (no type, no attrs); same as var v = expr
+var a:: = 10
+print(a)
+
+// var v::const = expr — type omitted, const attribute
+var b::const = 20
+print(b)
+
+// fn with bare :: before body (no return type, no function-level attrs)
+fn no_ret():: {
+    print(30)
+}
+no_ret()
+
+// fn with ::constexpr and no return type
+fn pure_side()::constexpr {
+    print(40)
+}
+pure_side()
+
+// fn parameter with default value (no type)
+fn with_default(x::const = 50) {
+    print(x)
+}
+with_default()
+with_default(99)
+
+// fn parameter with type and default value
+fn typed_default(n:i32 = 60) {
+    print(n)
+}
+typed_default()
+typed_default(77)
+
+// fn with return type AND bare :: (no fn-level attrs)
+fn doubled(x:i32):(result:i32):: {
+    result = x * 2
+}
+print(doubled(5).result)
