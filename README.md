@@ -218,9 +218,9 @@ switch (expr) [: ...可选注解占位...] {
 
 ## 当前测试样例
 
-- `/home/runner/work/lang-interpreter-by-ai/lang-interpreter-by-ai/tests/test_basic.txt`
-- `/home/runner/work/lang-interpreter-by-ai/lang-interpreter-by-ai/tests/test_functions.txt`
-- `/home/runner/work/lang-interpreter-by-ai/lang-interpreter-by-ai/tests/test_patterns.txt`
-- `/home/runner/work/lang-interpreter-by-ai/lang-interpreter-by-ai/tests/test_dcolon.txt`
+- `tests/test_basic.txt`
+- `tests/test_functions.txt`
+- `tests/test_patterns.txt`
+- `tests/test_dcolon.txt`
 
 这些样例可作为 parser 支持语法的最小可运行参考。
