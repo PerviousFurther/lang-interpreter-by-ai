@@ -112,7 +112,7 @@ static int is_float_type_name(const char *t) {
     return t && (!strcmp(t, "f32") || !strcmp(t, "float32") || !strcmp(t, "f64") || !strcmp(t, "float64"));
 }
 
-static int value_type_matches_decl(Value *v, AstNode *decl_ta) {
+static int value_type_compatible_with_decl(Value *v, AstNode *decl_ta) {
     if (!decl_ta || !decl_ta->data.str_val) return 1;
     Value *tv = value_type_of(v);
     const char *rt = tv ? tv->type_val.type_name : NULL;
@@ -136,7 +136,7 @@ static int tuple_value_matches_decl(Value *v, AstNode *decl_tuple) {
         } else {
             if (v->tuple.names && v->tuple.names[i]) return 0;
         }
-        if (!value_type_matches_decl(v->tuple.elems[i], d)) return 0;
+        if (!value_type_compatible_with_decl(v->tuple.elems[i], d)) return 0;
     }
     return 1;
 }
@@ -884,7 +884,7 @@ static EvalResult eval_fn_call(Value *fn, Value **args, int argc, int line, int 
                 r.val && r.val->type != VAL_NULL &&
                 !tuple_value_matches_decl(r.val, ret_type)) {
             value_decref(r.val);
-            return err("return tuple does not match declared return tuple type", line, col);
+            return err("return tuple mismatch: expected declared tuple field names/types", line, col);
         }
         if (r.sig == SIG_RETURN) { r.sig = SIG_NONE; return r; }
         if (r.sig == SIG_ERROR)  return r;
@@ -934,7 +934,7 @@ static EvalResult eval_fn_call(Value *fn, Value **args, int argc, int line, int 
                 r.val && r.val->type != VAL_NULL &&
                 !tuple_value_matches_decl(r.val, ret_type)) {
             value_decref(r.val);
-            return err("return tuple does not match declared return tuple type", line, col);
+            return err("return tuple mismatch: expected declared tuple field names/types", line, col);
         }
         if (r.sig == SIG_RETURN) { r.sig = SIG_NONE; return r; }
         return r;

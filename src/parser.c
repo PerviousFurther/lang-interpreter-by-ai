@@ -71,15 +71,6 @@ static void parse_attrs(Parser *p, AstNode *node) {
     }
 }
 
-static int is_builtin_type_name(const char *s) {
-    if (!s) return 0;
-    return strcmp(s, "i8") == 0 || strcmp(s, "i16") == 0 || strcmp(s, "i32") == 0 || strcmp(s, "i64") == 0
-        || strcmp(s, "u8") == 0 || strcmp(s, "u16") == 0 || strcmp(s, "u32") == 0 || strcmp(s, "u64") == 0
-        || strcmp(s, "f32") == 0 || strcmp(s, "f64") == 0 || strcmp(s, "float32") == 0 || strcmp(s, "float64") == 0
-        || strcmp(s, "type") == 0 || strcmp(s, "null") == 0 || strcmp(s, "string") == 0
-        || strcmp(s, "tuple") == 0 || strcmp(s, "function") == 0 || strcmp(s, "scope") == 0;
-}
-
 /* ------------------------------------------------------------------ init */
 
 void parser_init(Parser *p, Lexer *lex) {
@@ -443,10 +434,17 @@ static AstNode *parse_type_ann(Parser *p) {
     AstNode *ta = ast_new(AST_TYPE_ANN, line, col);
 
     /* named return value: name:type */
-    if (check(p, TK_IDENT) && !is_builtin_type_name(p->cur.value) && lexer_peek(p->lex).type == TK_COLON) {
+    if (check(p, TK_IDENT) && lexer_peek(p->lex).type == TK_COLON) {
         ta->name = strdup(p->cur.value);
         advance(p);
         advance(p); /* consume : */
+        /* If attrs follow immediately, this was actually `type:attrs`, not `name:type`. */
+        if (check(p, TK_STATIC) || check(p, TK_CONST) || check(p, TK_CONSTEXPR)) {
+            ta->data.str_val = ta->name;
+            ta->name = NULL;
+            parse_attrs(p, ta);
+            return ta;
+        }
     }
 
     /* type name, possibly with template args */
@@ -762,7 +760,7 @@ static AstNode *parse_primary(Parser *p) {
             return sc;
         }
         ast_free(sc);
-        parser_error(p, "expected scope body");
+        parser_error(p, "expected '{' to begin scope body");
         return NULL;
     }
 
@@ -806,7 +804,7 @@ static AstNode *parse_primary(Parser *p) {
                 AstNode *pnode = ast_new(AST_PARAM, p->cur.line, p->cur.col);
                 pnode->type_ann = parse_type_ann(p);
                 if (match(p, TK_EQ)) pnode->init = parse_expr(p);
-                else parser_error(p, "expected '=' in typed tuple element");
+                else parser_error(p, "expected '=' after type annotation in tuple element");
                 elem = pnode;
                 has_unnamed = 1;
             } else if (check(p, TK_IDENT)) {
@@ -832,7 +830,7 @@ static AstNode *parse_primary(Parser *p) {
                     } else if (!check(p, TK_COMMA) && !check(p, TK_RPAREN)) {
                         pnode->init = parse_expr(p);
                     } else {
-                        parser_error(p, "expected tuple element value");
+                        parser_error(p, "expected '=' and value after type annotation in tuple element");
                     }
                     elem = pnode;
                     has_named = 1;
