@@ -263,6 +263,8 @@ fn run(cb :: const) { … }               // param: type omitted, const attr
 fn greet(name : string = "world") {      // parameter with default value
     print("Hello,", name)
 }
+fn nl_sig
+(a : i32, b : i32) : (result : i32) { … } // newline between name and '(' is allowed
 fn power(base :: const = 2, exp : i32 = 10) : (result : i32) {
     // base has no explicit type, inferred at call time; exp is i32
     result = base
@@ -442,6 +444,14 @@ Param [: Kind [: num]] [= default]
 | `T ::` | Variadic type parameter (type annotation omitted; `::` because type slot is empty) |
 | `T :: num` | Variadic with fixed count `num` |
 | `= default` | Default value |
+
+When a variadic template parameter is the **last** template parameter, calls can
+pass the expanded trailing arguments directly (no extra wrapping `()` required).
+This rule refers to the **call site**:
+
+```
+some_fn<Head, Tail1, Tail2>(arg)   // direct expansion at call site
+```
 
 ```
 fn <T> identity(x : T) : (result : T) {

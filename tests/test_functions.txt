@@ -11,3 +11,13 @@ fn divmod(a:i32, b:i32):(quotient:i32, remainder:i32) {
 var d = divmod(17, 5)
 print(d.quotient)
 print(d.remainder)
+
+fn nl_sig
+(a:i32, b:i32):(result:i32) {
+    result = a + b
+}
+print(nl_sig(4, 5).result)
+
+fn test_template_call_syntax() {
+    target<T, U, V>(0)
+}
