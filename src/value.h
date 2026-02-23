@@ -66,6 +66,7 @@ struct Value {
         } pat_inst;
         struct {
             Env *env;
+            AstNode *ast;
         } scope;
         struct {
             BuiltinFn fn;
@@ -97,7 +98,7 @@ Value *value_new_tuple(int count);
 Value *value_new_function(AstNode *ast, Env *closure, const char *name);
 Value *value_new_builtin(BuiltinFn fn, const char *name);
 Value *value_new_pat_inst(PatDef *def, int field_count);
-Value *value_new_scope(Env *env);
+Value *value_new_scope(Env *env, AstNode *ast);
 Value *value_new_module(const char *name, Env *env);
 Value *value_new_type(const char *type_name);
 Value *value_new_pat_type(const char *type_name, PatDef *def);

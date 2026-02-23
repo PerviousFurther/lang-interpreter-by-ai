@@ -103,6 +103,44 @@ static EvalResult err(const char *msg, int line, int col) {
     return r;
 }
 
+static int is_int_type_name(const char *t) {
+    return t && (!strcmp(t, "i8") || !strcmp(t, "i16") || !strcmp(t, "i32") || !strcmp(t, "i64")
+            || !strcmp(t, "u8") || !strcmp(t, "u16") || !strcmp(t, "u32") || !strcmp(t, "u64"));
+}
+
+static int is_float_type_name(const char *t) {
+    return t && (!strcmp(t, "f32") || !strcmp(t, "float32") || !strcmp(t, "f64") || !strcmp(t, "float64"));
+}
+
+static int value_type_compatible_with_decl(Value *v, AstNode *decl_ta) {
+    if (!decl_ta || !decl_ta->data.str_val) return 1;
+    Value *tv = value_type_of(v);
+    const char *rt = tv ? tv->type_val.type_name : NULL;
+    const char *dt = decl_ta->data.str_val;
+    int ok_type = 0;
+    if (rt && strcmp(dt, rt) == 0) ok_type = 1;
+    else if (is_int_type_name(dt) && rt && strcmp(rt, "i64") == 0) ok_type = 1;
+    else if (is_float_type_name(dt) && rt && strcmp(rt, "f64") == 0) ok_type = 1;
+    value_decref(tv);
+    return ok_type;
+}
+
+static int tuple_value_matches_decl(Value *v, AstNode *decl_tuple) {
+    if (!decl_tuple || decl_tuple->type != AST_TUPLE) return 1;
+    if (!v || v->type != VAL_TUPLE) return 0;
+    if (v->tuple.count != decl_tuple->child_count) return 0;
+    for (int i = 0; i < decl_tuple->child_count; i++) {
+        AstNode *d = decl_tuple->children[i];
+        if (d && d->name) {
+            if (!v->tuple.names || !v->tuple.names[i] || strcmp(v->tuple.names[i], d->name) != 0) return 0;
+        } else {
+            if (v->tuple.names && v->tuple.names[i]) return 0;
+        }
+        if (!value_type_compatible_with_decl(v->tuple.elems[i], d)) return 0;
+    }
+    return 1;
+}
+
 /* ------------------------------------------------------------------ forward */
 static EvalResult eval_call(AstNode *node, Env *env);
 static EvalResult eval_fn_call(Value *fn, Value **args, int argc, int line, int col);
@@ -415,12 +453,13 @@ EvalResult eval(AstNode *node, Env *env) {
                 EvalResult r = eval(child->body, env);
                 if (r.sig != SIG_NONE) { value_decref(t); return r; }
                 t->tuple.elems[i] = r.val;
-            } else if (child && child->type == AST_PARAM && child->name && child->init) {
-                /* named: (name: expr) — from named tuple literal syntax */
-                if (!t->tuple.names) {
-                    t->tuple.names = calloc((size_t)node->child_count, sizeof(char *));
+            } else if (child && child->type == AST_PARAM && child->init) {
+                if (child->name) {
+                    if (!t->tuple.names) {
+                        t->tuple.names = calloc((size_t)node->child_count, sizeof(char *));
+                    }
+                    t->tuple.names[i] = strdup(child->name);
                 }
-                t->tuple.names[i] = strdup(child->name);
                 EvalResult r = eval(child->init, env);
                 if (r.sig != SIG_NONE) { value_decref(t); return r; }
                 t->tuple.elems[i] = r.val;
@@ -444,10 +483,7 @@ EvalResult eval(AstNode *node, Env *env) {
 
     /* ---- scope ---- */
     case AST_SCOPE: {
-        Env *child_env = env_new(env);
-        EvalResult r = eval_block(node, child_env);
-        env_decref(child_env);
-        return r;
+        return ok(value_new_scope(env, node));
     }
 
     /* ---- block (same as scope but in context) ---- */
@@ -844,8 +880,63 @@ static EvalResult eval_fn_call(Value *fn, Value **args, int argc, int line, int 
 
         env_decref(call_env);
 
+        if (r.sig == SIG_RETURN && ret_type && ret_type->type == AST_TUPLE &&
+                r.val && r.val->type != VAL_NULL &&
+                !tuple_value_matches_decl(r.val, ret_type)) {
+            value_decref(r.val);
+            return err("return tuple mismatch: expected declared tuple field names/types", line, col);
+        }
         if (r.sig == SIG_RETURN) { r.sig = SIG_NONE; return r; }
         if (r.sig == SIG_ERROR)  return r;
+        return r;
+    }
+
+    if (fn->type == VAL_SCOPE) {
+        AstNode *sc = fn->scope.ast;
+        Env *call_env = env_new(fn->scope.env);
+        AstNode *ret_type = sc ? sc->type_ann : NULL;
+        int named_ret_count = 0;
+        if (ret_type && ret_type->type == AST_TUPLE) {
+            for (int i = 0; i < ret_type->child_count; i++) {
+                AstNode *rta = ret_type->children[i];
+                if (rta && rta->name) {
+                    Value *init = value_new_null();
+                    env_def(call_env, rta->name, init);
+                    value_decref(init);
+                    named_ret_count++;
+                }
+            }
+        }
+
+        EvalResult r = sc ? eval_block(sc, call_env) : ok(value_new_null());
+        if (named_ret_count > 0 &&
+            (r.sig == SIG_NONE ||
+             (r.sig == SIG_RETURN && r.val && r.val->type == VAL_NULL))) {
+            Value *ret_tuple = value_new_tuple(named_ret_count);
+            ret_tuple->tuple.names = calloc((size_t)named_ret_count, sizeof(char *));
+            int ti = 0;
+            for (int i = 0; i < ret_type->child_count; i++) {
+                AstNode *rta = ret_type->children[i];
+                if (!rta || !rta->name) continue;
+                ret_tuple->tuple.names[ti] = strdup(rta->name);
+                Value *v = env_get(call_env, rta->name);
+                if (v) { value_incref(v); ret_tuple->tuple.elems[ti] = v; }
+                else   { ret_tuple->tuple.elems[ti] = value_new_null(); }
+                ti++;
+            }
+            if (r.val) value_decref(r.val);
+            env_decref(call_env);
+            return ok(ret_tuple);
+        }
+
+        env_decref(call_env);
+        if (r.sig == SIG_RETURN && ret_type && ret_type->type == AST_TUPLE &&
+                r.val && r.val->type != VAL_NULL &&
+                !tuple_value_matches_decl(r.val, ret_type)) {
+            value_decref(r.val);
+            return err("return tuple mismatch: expected declared tuple field names/types", line, col);
+        }
+        if (r.sig == SIG_RETURN) { r.sig = SIG_NONE; return r; }
         return r;
     }
 
