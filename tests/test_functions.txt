@@ -21,3 +21,39 @@ print(nl_sig(4, 5).result)
 fn test_template_call_syntax() {
     target<T, U, V>(0)
 }
+
+var answer = : null : noreturn {
+    value = 64
+}
+var value = 42
+answer()
+print(value)
+
+var sret = : (left:i32, right:i32) {
+    left = 11
+    right = 22
+}
+var sv = sret()
+print(sv.left)
+print(sv.right)
+
+var sret2 = : (a:i32, b:i32) {
+    return (a:i32=7, b:i32=8)
+}
+print(sret2().a)
+print(sret2().b)
+
+var nt1 = (a=1, b=2)
+print(nt1.a)
+print(nt1.b)
+
+var nt2 = (a:i32=3, b:i32=4)
+print(nt2.a)
+print(nt2.b)
+
+var ut1 = (:i32=5, :i32=6)
+print(ut1[0])
+print(ut1[1])
+
+var c:i64:const = 6
+print(c)

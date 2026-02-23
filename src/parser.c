@@ -63,11 +63,21 @@ static void expect(Parser *p, TokenType t) {
 /* Consume any trailing attribute keywords (static, const, constexpr) and set
    the corresponding flags on node.  Called after a '::' has already been consumed. */
 static void parse_attrs(Parser *p, AstNode *node) {
-    while (check(p, TK_STATIC) || check(p, TK_CONST) || check(p, TK_CONSTEXPR)) {
+    while (check(p, TK_STATIC) || check(p, TK_CONST) || check(p, TK_CONSTEXPR) || check(p, TK_IDENT)) {
         if (check(p, TK_STATIC))    { node->is_static    = 1; advance(p); }
         else if (check(p, TK_CONST))     { node->is_const     = 1; advance(p); }
         else if (check(p, TK_CONSTEXPR)) { node->is_constexpr = 1; advance(p); }
+        else advance(p); /* allow unknown attrs syntactically */
     }
+}
+
+static int is_builtin_type_name(const char *s) {
+    if (!s) return 0;
+    return strcmp(s, "i8") == 0 || strcmp(s, "i16") == 0 || strcmp(s, "i32") == 0 || strcmp(s, "i64") == 0
+        || strcmp(s, "u8") == 0 || strcmp(s, "u16") == 0 || strcmp(s, "u32") == 0 || strcmp(s, "u64") == 0
+        || strcmp(s, "f32") == 0 || strcmp(s, "f64") == 0 || strcmp(s, "float32") == 0 || strcmp(s, "float64") == 0
+        || strcmp(s, "type") == 0 || strcmp(s, "null") == 0 || strcmp(s, "string") == 0
+        || strcmp(s, "tuple") == 0 || strcmp(s, "function") == 0 || strcmp(s, "scope") == 0;
 }
 
 /* ------------------------------------------------------------------ init */
@@ -273,7 +283,7 @@ static AstNode *parse_fn_decl(Parser *p, int is_pub) {
      *   fn foo() : (r:i32) :: constexpr { … }   — after return type
      *   fn foo() ::                      { … }   — no return type, bare ::
      */
-    if (match(p, TK_DCOLON)) {
+    if (match(p, TK_DCOLON) || match(p, TK_COLON)) {
         parse_attrs(p, fn);
     }
 
@@ -433,7 +443,7 @@ static AstNode *parse_type_ann(Parser *p) {
     AstNode *ta = ast_new(AST_TYPE_ANN, line, col);
 
     /* named return value: name:type */
-    if (check(p, TK_IDENT) && lexer_peek(p->lex).type == TK_COLON) {
+    if (check(p, TK_IDENT) && !is_builtin_type_name(p->cur.value) && lexer_peek(p->lex).type == TK_COLON) {
         ta->name = strdup(p->cur.value);
         advance(p);
         advance(p); /* consume : */
@@ -450,6 +460,11 @@ static AstNode *parse_type_ann(Parser *p) {
     } else if (check(p, TK_NULL)) {
         ta->data.str_val = strdup("null");
         advance(p);
+    }
+
+    /* type[:attrs] */
+    if (match(p, TK_COLON)) {
+        parse_attrs(p, ta);
     }
 
     return ta;
@@ -713,6 +728,44 @@ static AstNode *parse_unary(Parser *p) {
 static AstNode *parse_primary(Parser *p) {
     int line = p->cur.line, col = p->cur.col;
 
+    if (check(p, TK_COLON)) {
+        int sline = p->cur.line, scol = p->cur.col;
+        advance(p); /* consume leading ':' */
+        AstNode *sc = ast_new(AST_SCOPE, sline, scol);
+        if (!check(p, TK_LBRACE) && !check(p, TK_COLON)) {
+            if (check(p, TK_LPAREN)) {
+                int ret_line = p->cur.line, ret_col = p->cur.col;
+                advance(p); /* consume ( */
+                AstNode *ret_tuple = ast_new(AST_TUPLE, ret_line, ret_col);
+                while (!check(p, TK_RPAREN) && !check(p, TK_EOF)) {
+                    AstNode *ta = parse_type_ann(p);
+                    if (ta) ast_add_child(ret_tuple, ta);
+                    if (!match(p, TK_COMMA)) break;
+                }
+                expect(p, TK_RPAREN);
+                sc->type_ann = ret_tuple;
+            } else {
+                sc->type_ann = parse_type_ann(p);
+            }
+        }
+        if (match(p, TK_COLON)) {
+            parse_attrs(p, sc);
+        }
+        if (check(p, TK_LBRACE)) {
+            AstNode *body = parse_scope(p);
+            sc->children = body->children;
+            sc->child_count = body->child_count;
+            sc->child_cap = body->child_cap;
+            body->children = NULL;
+            body->child_count = body->child_cap = 0;
+            ast_free(body);
+            return sc;
+        }
+        ast_free(sc);
+        parser_error(p, "expected scope body");
+        return NULL;
+    }
+
     if (check(p, TK_INT_LIT)) {
         AstNode *n = ast_new(AST_INT_LIT, line, col);
         n->data.int_val = strtoll(p->cur.value, NULL, 10);
@@ -743,57 +796,70 @@ static AstNode *parse_primary(Parser *p) {
     }
     if (check(p, TK_LPAREN)) {
         advance(p);
-        /* could be a tuple literal: (name: expr, ...) or (expr, ...) */
-        AstNode *expr = parse_expr(p);
-        /* named element: (name: value, ...) — ident followed by ':' */
-        if (check(p, TK_COLON) && expr && expr->type == AST_IDENT) {
-            AstNode *tuple = ast_new(AST_TUPLE, line, col);
-            for (;;) {
-                /* consume ':' and parse value */
-                advance(p); /* consume ':' */
-                AstNode *elem = ast_new(AST_PARAM, expr->line, expr->col);
-                elem->name = expr->name; /* transfer name ownership */
-                expr->name = NULL;       /* prevent double-free in ast_free */
-                ast_free(expr);
-                elem->init = parse_expr(p);
-                ast_add_child(tuple, elem);
-                if (!match(p, TK_COMMA)) break;
-                if (check(p, TK_RPAREN)) break; /* trailing comma */
-                expr = parse_expr(p);
-                /* subsequent element may or may not be named */
-                if (!check(p, TK_COLON) || !expr || expr->type != AST_IDENT) {
-                    ast_add_child(tuple, expr);
-                    while (match(p, TK_COMMA)) {
-                        if (check(p, TK_RPAREN)) break;
-                        ast_add_child(tuple, parse_expr(p));
+        AstNode *tuple = ast_new(AST_TUPLE, line, col);
+        int has_named = 0, has_unnamed = 0, elem_count = 0, saw_comma = 0;
+        while (!check(p, TK_RPAREN) && !check(p, TK_EOF)) {
+            AstNode *elem = NULL;
+            if (check(p, TK_COLON)) {
+                /* (:type[:attrs]=value) */
+                advance(p);
+                AstNode *pnode = ast_new(AST_PARAM, p->cur.line, p->cur.col);
+                pnode->type_ann = parse_type_ann(p);
+                if (match(p, TK_EQ)) pnode->init = parse_expr(p);
+                else parser_error(p, "expected '=' in typed tuple element");
+                elem = pnode;
+                has_unnamed = 1;
+            } else if (check(p, TK_IDENT)) {
+                Token look = lexer_peek(p->lex);
+                if (look.type == TK_EQ) {
+                    /* (name=value) */
+                    AstNode *pnode = ast_new(AST_PARAM, p->cur.line, p->cur.col);
+                    pnode->name = strdup(p->cur.value);
+                    advance(p);
+                    expect(p, TK_EQ);
+                    pnode->init = parse_expr(p);
+                    elem = pnode;
+                    has_named = 1;
+                } else if (look.type == TK_COLON) {
+                    /* (name:type[:attrs]=value) or legacy (name:value) */
+                    AstNode *pnode = ast_new(AST_PARAM, p->cur.line, p->cur.col);
+                    pnode->name = strdup(p->cur.value);
+                    advance(p);
+                    expect(p, TK_COLON);
+                    pnode->type_ann = parse_type_ann(p);
+                    if (match(p, TK_EQ)) {
+                        pnode->init = parse_expr(p);
+                    } else if (!check(p, TK_COMMA) && !check(p, TK_RPAREN)) {
+                        pnode->init = parse_expr(p);
+                    } else {
+                        parser_error(p, "expected tuple element value");
                     }
-                    break;
+                    elem = pnode;
+                    has_named = 1;
                 }
             }
-            expect(p, TK_RPAREN);
-            return tuple;
-        }
-        if (check(p, TK_COMMA) || (expr && expr->type == AST_ASSIGN)) {
-            /* Unnamed tuple: (a, b, ...) */
-            AstNode *tuple = ast_new(AST_TUPLE, line, col);
-            ast_add_child(tuple, expr);
-            while (match(p, TK_COMMA)) {
-                if (check(p, TK_RPAREN)) break; /* trailing comma */
-                ast_add_child(tuple, parse_expr(p));
+            if (!elem) {
+                elem = parse_expr(p);
+                has_unnamed = 1;
             }
-            expect(p, TK_RPAREN);
-            return tuple;
-        }
-        /* named single: (name: expr) is also a 1-tuple */
-        if (expr && expr->type == AST_TYPE_ANN) {
-            /* treat as 1-elem tuple */
-            AstNode *tuple = ast_new(AST_TUPLE, line, col);
-            ast_add_child(tuple, expr);
-            expect(p, TK_RPAREN);
-            return tuple;
+            if (elem) { ast_add_child(tuple, elem); elem_count++; }
+            if (!match(p, TK_COMMA)) break;
+            saw_comma = 1;
+            if (check(p, TK_RPAREN)) break;
         }
         expect(p, TK_RPAREN);
-        return expr;
+        if (elem_count == 1 && has_unnamed && !has_named
+                && !saw_comma
+                && tuple->children[0] && tuple->children[0]->type != AST_PARAM) {
+            AstNode *only = tuple->children[0];
+            tuple->children[0] = NULL;
+            ast_free(tuple);
+            return only;
+        }
+        if (has_named && has_unnamed) {
+            parser_error(p, "cannot mix named and unnamed tuple initializers");
+        }
+        return tuple;
     }
     if (check(p, TK_LBRACE)) {
         return parse_scope(p);

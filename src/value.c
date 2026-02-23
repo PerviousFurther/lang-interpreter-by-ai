@@ -82,9 +82,11 @@ Value *value_new_pat_inst(PatDef *def, int field_count) {
     return v;
 }
 
-Value *value_new_scope(Env *env) {
+Value *value_new_scope(Env *env, AstNode *ast) {
     Value *v = value_alloc(VAL_SCOPE);
     v->scope.env = env;
+    v->scope.ast = ast;
+    if (env) env_incref(env);
     return v;
 }
 
@@ -200,7 +202,7 @@ void value_decref(Value *v) {
             patdef_decref(v->module.patdef);
             break;
         case VAL_SCOPE:
-            /* env is owned by interpreter stack */
+            env_decref(v->scope.env);
             break;
         default: break;
     }
