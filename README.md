@@ -138,13 +138,13 @@ var x = (
 
 ---
 
-## 3. Annotation syntax — `:` and `::`
+## 3. Annotation syntax — `:`
 
 Variables, function parameters, and function return annotations all share the same
 optional-part structure:
 
 ```
-name : Type :: attrs
+name : Type : attrs
 ```
 
 Each component is individually optional:
@@ -152,7 +152,7 @@ Each component is individually optional:
 | Written form       | Meaning |
 |--------------------|---------|
 | `name : Type`      | type only |
-| `name : Type :: attrs` | type + attributes |
+| `name : Type : attrs` | type + attributes |
 | `name :: attrs`    | **type omitted**, attributes present — the two colons merge because the type slot is empty |
 | `name ::`          | **both type and attrs omitted** — a trailing `::` that is syntactically allowed but semantically equivalent to writing nothing |
 | `name`             | no type, no attrs (same as `name ::`) |
@@ -164,7 +164,7 @@ semantics are identical to the bare `name` form.  Examples:
 var v :: = 6          // :: with no type and no attrs; same as:  var v = 6
 var v :: const = 6    // type omitted, const attribute
 var v : i32 = 6       // type present, no attrs
-var v : i32 :: const = 6  // type + const
+var v : i32 : const = 6  // type + const
 ```
 
 Function parameters and function-level attributes follow the same pattern:
@@ -202,7 +202,7 @@ Rules:
 var x : i32               // declared, uninitialised; type is i32
 var y : i32 = 42          // declared and initialised
 var z = 3.14              // type inferred as f64
-var pi : f64 :: const = 3.14159    // type + const attribute
+var pi : f64 : const = 3.14159    // type + const attribute
 var n :: const = 100      // type inferred (i64), const attribute
 var n :: = 6              // trailing :: — same as:  var n = 6
 
@@ -236,21 +236,21 @@ var { first = [0], last = [2],  } = my_tuple   // positional
 Full form:
 
 ```
-fn [<TemplateDecl>] name (params) [: (ret_name : RetType, …)] [:: fn_attrs] { body }
+fn [<TemplateDecl>] name (params) [: (ret_name : RetType, …)] [: fn_attrs] { body }
 ```
 
-- The parameter list uses the same `:` / `::` annotation rules as variables (§3).
+- The parameter list uses the same `:`  annotation rules as variables (§3).
 - The return annotation is `:(name:Type, …)` — a parenthesised list of named,
   typed return variables.  It is omitted entirely when there are no return values.
 - Function-level attributes follow `::`.  The `::` may appear with or without a
   preceding return-type annotation: `fn foo() :: {}` (no return, bare `::`) and
-  `fn foo() : (r:i32) :: constexpr {}` are both valid.  The `::` may be omitted
+  `fn foo() : (r:i32) : constexpr {}` are both valid.  The second `:` cannot be omitted.
   when there are no function-level attributes.
 
 ### Parameters
 
 Each parameter follows the same annotation rules as variables: `name`, `name:Type`,
-`name:Type::attrs`, or `name::attrs` (type omitted).
+`name:Type:attrs`, or `name:attrs` (type omitted).
 
 Parameters may have a **default value** written as `= expr` after the type/attrs.
 When a caller omits trailing arguments, the interpreter evaluates each missing
@@ -258,7 +258,7 @@ parameter's default expression in the call environment.
 
 ```
 fn add(a : i32, b : i32) { … }           // two typed params, no return
-fn show(msg : string :: const) { … }     // param with const attribute
+fn show(msg : string : const) { … }     // param with const attribute
 fn run(cb :: const) { … }               // param: type omitted, const attr
 fn greet(name : string = "world") {      // parameter with default value
     print("Hello,", name)
@@ -316,10 +316,11 @@ fn abs_val(x : i32) : (result : i32) {
 ### Function-level attributes
 
 ```
-fn compute(x : i32) : (result : i32) :: constexpr {
+fn compute(x : i32) : (result : i32 = 8) : constexpr {
     result = x * x
 }
 ```
+*btw: return value can have default value.*
 
 ### Custom operators
 
@@ -341,6 +342,7 @@ var r = 3 +> 4
 | `"destruct"`  | Destructor |
 | `"copy"`      | Copy (unary) |
 | `"move"`      | Move (unary) |
+*btw: currently only these costumized "" can contain english letter can be used.*
 
 ### Nested declarations
 
@@ -420,7 +422,7 @@ pat Dog    : Animal | Pet { pub var breed : string }
 - `pub var` / `var` — fields
 - `pub fn` / `fn` — methods
 - `pat` — nested patterns
-- Logic statements — executed when an instance is created
+- Logic statements — executed before first instance of this pattern is created.
 
 ---
 
@@ -457,7 +459,8 @@ pat <T> Box {
     pub var value : T
 }
 
-var <N : i32> zero : i32 = N
+var <N : i32 = 0> zero : i32 = N
+
 ```
 
 ---
@@ -477,16 +480,17 @@ pub fn greet(name : string) { print("Hello,", name) }
 
 ```
 import path [. path …] [as alias]
-    [of [{ name [as alias] , … }]]
+    [with [{ name [as alias] , … }]]
 ```
 
 - `path.path` maps to `path/path.lang`.
 - `as alias` — only the alias is usable after the import.
-- `of name` — import one specific name (no braces).
-- `of { n1, n2 as alias, … }` — import several names (braces required; trailing comma allowed).
+- `with name` — import one specific name (no braces).
+- `with { n1, n2 as alias, … }` — import several names (braces required; trailing comma allowed).
 
 When a module is imported, its declarative code (`fn`, `var`, `pat`) is parsed
 immediately; function bodies are deferred until the function is called.
+And identifiers following `with` can access it without the module name. If different module have same id, both id should accompanied with module name.
 
 ```
 import math
@@ -505,26 +509,26 @@ The language has **no `if` or `else`**.  Branching uses `?:`, `switch`, and loop
 ### Optional expression `?:`
 
 ```
-condition ? value_when_true : value_when_false
+condition ? value_when_true [: value_when_false]
 ```
 
-The `:` branch is optional; omitting it gives `null` for the false case.
+The `:` branch is optional; omitting it gives `null` for the false case by default.
 
 ```
 var abs_x = x < 0 ? -x : x
-x > 0 ? print("positive") : null
+x > 0 ? print("positive") : null // same with x > 0 ? print("positive")
 ```
 
 ### `for` loop
 
 ```
-for (element : range) [: Type [:: attrs]] { body }
+for (element : range) [: Type [: attrs]] { body }
 ```
 
 Iterates `element` over `range`.  If `range` is an integer `n`, iterates `0 .. n-1`.
 If `range` is a tuple, iterates its elements.
 
-The loop body may contain `yield` to produce a value from the loop.
+The loop body may contain `return` to produce a value from the loop.
 
 ```
 for (x : 5) { print(x) }        // 0 1 2 3 4
@@ -532,7 +536,7 @@ for (x : 5) { print(x) }        // 0 1 2 3 4
 var items = (10, 20, 30)
 for (v : items) { print(v) }    // 10 20 30
 
-var doubled = for (x : items) { yield x * 2 }
+var doubled = for (x : items) : int : { x == 10 ? return x * 2; } // select the value when x equal 10.
 ```
 
 ### `while` loop
@@ -551,39 +555,34 @@ while (n < 5) {
     n = n + 1
 }
 
-{ print("once") } while (false)   // executes exactly once
+{ print("once"); } while (false)   // executes exactly once
+
+var c = while(true) { n > 9 ? yield n : n++; }
 ```
 
 ### `switch`
 
 ```
-switch (tag) [: Type [:: attrs]] {
+switch (tag) [: Type [: attrs]] {
     case val : [{ ] … [ }] break
     default  : [{ ] … [ }] break
 }
 ```
 
-`tag` and `case` values must be the same type.  Braces around each case body are optional.
+`tag` and `case` values might not the same type. However, `tag == case` should be vaild, and they must be hashable. Braces around each case body are optional.
 
 ```
 switch (n % 3) {
-    case 0: { print("fizz")  } break
-    case 1: { print("one")   } break
+    case 0:  { print("fizz")  } break
+    case 1:  { print("one")   } break
     default: { print("other") } break
 }
 ```
 
-### `break` and `yield`
+### `break` and `return`
 
 - `break` — exits the nearest loop or switch.
-- `yield expr` — emits a value from a loop or scope; makes the enclosing construct
-  evaluate to `expr`.
-
-### `return`
-
-- Bare `return` — exits a function early; named return variables are collected
-  automatically.
-- `return (name: val, …)` — early exit with an explicit tuple value.
+- `return [expr]` — if `expr` is empty, it can represents exit from a loop or scope with that value. And function cannot have `expr` currently.
 
 ---
 
@@ -614,9 +613,11 @@ switch (n % 3) {
 ### Member access
 
 ```
-obj . member
+obj.member
+obj.
+   method()   // newline before member is allowed
 obj
-  . method()   // newline before member is allowed
+   .method() // also allowed
 ```
 
 ### Subscript (tuple element)
@@ -639,18 +640,24 @@ A parenthesised, comma-separated list.  Elements may be named:
 
 ```
 (1, 2, 3)                    // unnamed 3-tuple
-(x: 1.0, y: 2.0)            // named 2-tuple
-(quotient: a/b, remainder: a%b)
+(x::const = 1.0, y: = 2.0)            // named 2-tuple
+(quotient::const a/b, remainder::const a%b)
 ```
 
-### Scope as expression
+### Scope mechanism
 
+Any execution code will not be interpreted until execute it.
 ```
-var answer = {
-    var tmp = 6 * 7
-    yield tmp          // answer = 42
-}
+var answer = : null : noreturn {
+    value = 64
+} // answer is a bultin_scope. with noreturn attribute.
+var value = 42
+answer()
+print(value) // 64
 ```
+since searching for id for `value` are defer to runtime.
+
+However, with `fn`, `pat` or `var` inside `pat`, the interpreter will not resolve them inside the module. If it cannot resolve a type within module after finish resolving type of the module, a error will be throwed, showing all unresolved type inside module.
 
 ### Template instantiation
 
@@ -697,7 +704,7 @@ initialiser expression rather than its value:
 
 ```
 var t : type = 42          // t holds the i64 type
-print(t.name)              // i64
+print(t.name)              // int64, the full name.
 
 var t2 : type = "hello"
 print(t2.name)             // string
@@ -714,16 +721,15 @@ print(t2.name)             // string
 ```
 pat Vec2 { pub var x : f64; pub var y : f64 }
 
-var v  = Vec2(1.0, 2.0)
-var tv : type = v
-print(tv.name)       // Vec2
-print(tv.is_pat)     // true
-print(tv.fields.x)   // x
-print(tv.fields.y)   // y
+var v = Vec2(1.0, 2.0)
+print(type(v).name)       // Vec2
+print(type(v).is_pat)     // true
+print(type(v).fields)     // [x:float64, y:float64]
 ```
 
 `type` can also be called as a function: `type(expr)` returns the same reflection
-object as `var t:type = expr`.
+object as `var t:type = expr`. Since it just call the same constructor of `type`.
+btw: `var c:type(v)` is allowed, have same type as `v`.
 
 ### Scalar types
 
@@ -738,12 +744,13 @@ Use `import integer` to load all integer type definitions; `import float` for fl
 
 ### `string<CharType=i8>`
 
-Dynamic, mutable string.  String literals (`"…"` or `'…'`) produce an immutable
+Dynamic, mutable string. 
+String literals (`"…"` or `'…'`) produce an immutable
 `literal_string`.
 
 ```
 import string
-var s : string = "hello"
+var s : string = "hello" // copy, and becoming mutable.
 ```
 
 ### `tuple<…>` / `ntuple<…>`
@@ -753,7 +760,7 @@ Fixed-length heterogeneous sequence.
 - **Unnamed tuple**: accessed by position `t[0]`, `t[1]`, …
 - **Named tuple (`ntuple`)**: accessed by name or position; convertible to unnamed.
 
-Tuples are used for function return values.
+Named tuples are builtin type of function return values.
 
 ### `variant<Types…>`
 
@@ -767,13 +774,13 @@ var v : variant<i32, string> = 42
 ### `builtin_scope<index, Types::, Ret=null>`
 
 Every `{…}` block is a unique `builtin_scope` type identified by its `index`.
-Scopes are callable.  After `import scope`, the base type `scope` is available.
+Scopes are callable.  After `import scope`, the base type `scope<Types::, Ret=null>` is available.
 
 ### `builtin_optional<Type0, Type1=null, Cond=null, Ext=null>`
 
 Result type of `?:`.  After `import optional`, `optional<Type0, Type1=null>` is available.
 
-### `for_loop<index>` / `while_loop<index>` / `switch_scope<index>`
+### `for_loop<index,…>` / `while_loop<index,…>` / `switch_scope<index,…>`
 
 Subtypes of `builtin_scope` produced by the respective control-flow constructs.
 
@@ -881,9 +888,9 @@ print(clamp(-3, 0, 10).result)   // 0
 ```
 fn classify(n : i32) : (label : string) {
     label = switch (n % 3) {
-        case 0:  { yield "fizz"  } break
-        case 1:  { yield "one"   } break
-        default: { yield "other" } break
+        case 0:  { return "fizz"  } break
+        case 1:  { return "one"   } break
+        default: { return "other" } break
     }
 }
 print(classify(9).label)   // fizz
@@ -917,14 +924,14 @@ print(tp.fields.y)       // y
 print(type(42).name)     // i64
 ```
 
-### Attributes and `::` syntax
+### Attributes and `:` syntax
 
 ```
-var pi : f64 :: const = 3.14159        // type + const
+var pi : f64 : const = 3.14159        // type + const
 var n  :: const = 100                  // type inferred, const
 var m  :: = 42                         // trailing :: (same as: var m = 42)
 
-fn pure(x : i32) : (result : i32) :: constexpr {
+fn pure(x : i32) : (result : i32) : constexpr {
     result = x * x
 }
 ```
@@ -939,9 +946,9 @@ pub pat Vec3 {
     pub var z : f64
 }
 
-pub fn "+" (a : Vec3, b : Vec3) : (result : Vec3) {
+pub fn "+" (a : Vec3, b : Vec3) : (result : Vec3) : {
     result = Vec3(a.x + b.x, a.y + b.y, a.z + b.z)
-}
+} 
 ```
 
 **main.lang**
